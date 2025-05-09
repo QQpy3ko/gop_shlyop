@@ -1,0 +1,46 @@
+# modules files
+go.sum
+/go/pkg/
+
+# binary files
+/bin/
+/out/
+*.exe
+*.so
+*.dll
+
+# IDE and editors files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# test and temp files
+*.test
+*.out
+*.prof
+*.trace
+coverage.txt
+profile.out
+
+# auto-generated files
+.DS_Store
+Thumbs.db
+
+# local configs
+.env
+.env.local
+*.local
+
+# auto-generated docs and cache
+/doc/
+/docs/
+
+# cgo projects
+*.cgo1.go
+*.cgo2.c
+_cgo_defun.c
+_cgo_gotypes.go
+_cgo_export.*
