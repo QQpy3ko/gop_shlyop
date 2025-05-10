@@ -3,6 +3,7 @@ package queue
 import (
 	"testing"
 	"time"
+    "sync/atomic"
 )
 
 func TestAdd(t *testing.T) {
@@ -22,8 +23,28 @@ func TestAdd(t *testing.T) {
 	}
 }
 
-type mockTask struct{}
+func TestRun(t *testing.T) {
+	q := NewQueue()
+
+	var executed int32
+	task := &mockTask{executed: &executed}
+	timestamp := time.Now().Add(time.Second)
+
+	q.Add(task, timestamp)
+
+	go q.Run()
+
+	time.Sleep(2 * time.Second)
+
+	if atomic.LoadInt32(&executed) != 1 {
+		t.Errorf("Expected task to be executed, but it was not")
+	}
+}
+
+type mockTask struct {
+	executed *int32
+}
 
 func (m *mockTask) Exec() {
-
+	atomic.AddInt32(m.executed, 1)
 } 
