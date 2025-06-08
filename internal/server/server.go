@@ -2,9 +2,15 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"gop_shlyop/internal/config"
 	"gop_shlyop/internal/db"
+	"gop_shlyop/internal/llm"
+	"gop_shlyop/internal/repository"
+	"gop_shlyop/internal/types"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,9 +24,11 @@ import (
 )
 
 type Server struct {
-	cfg    *config.Config
-	log    zerolog.Logger
-	dbpool *pgxpool.Pool
+	cfg             *config.Config
+	log             zerolog.Logger
+	dbpool          *pgxpool.Pool
+	reviewsRepo     *repository.ReviewsRepository
+	sentimentClient *llm.Client
 }
 
 func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Server, error) {
@@ -31,10 +39,15 @@ func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Server, 
 	}
 	log.Info().Msg("Successfully connected to PostgreSQL")
 
+	reviewsRepo := repository.NewReviewsRepository(dbpool)
+	sentimentClient := llm.NewClient(cfg.Ollama)
+
 	return &Server{
-		cfg:    cfg,
-		log:    log,
-		dbpool: dbpool,
+		cfg:             cfg,
+		log:             log,
+		dbpool:          dbpool,
+		reviewsRepo:     reviewsRepo,
+		sentimentClient: sentimentClient,
 	}, nil
 }
 
@@ -53,7 +66,7 @@ func (s *Server) Run() error {
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Post("/reviews", s.addReview)
 		r.Get("/reviews", s.getReviews)
-		r.Get("/items/{id}/rating", s.getItemRating)
+		r.Get("/items/{itemId}/rating", s.getItemRating)
 	})
 
 	httpServer := &http.Server{
@@ -94,10 +107,34 @@ func (s *Server) Run() error {
 	return nil
 }
 
-// TODO: Implement handlers
+// --- Handlers ---
+
 func (s *Server) addReview(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-	w.Write([]byte("Not Implemented"))
+	var req types.AddReviewRequest
+	if err := s.decodeJSON(w, r, &req); err != nil {
+		s.errorResponse(w, r, http.StatusBadRequest, err)
+		return
+	}
+
+	// TODO: Add validation for the request fields (e.g., UserID, ItemID, Text not empty)
+
+	sentiment, err := s.sentimentClient.AnalyzeSentiment(r.Context(), req.Text)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to analyze sentiment")
+		// Save the review with a "neutral" sentiment or fail?
+		// For now, fail the request.
+		s.errorResponse(w, r, http.StatusInternalServerError, errors.New("failed to analyze review sentiment"))
+		return
+	}
+
+	review, err := s.reviewsRepo.CreateReview(r.Context(), req, sentiment)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to create review")
+		s.errorResponse(w, r, http.StatusInternalServerError, errors.New("failed to save review"))
+		return
+	}
+
+	s.writeJSON(w, http.StatusCreated, review)
 }
 
 func (s *Server) getReviews(w http.ResponseWriter, r *http.Request) {
@@ -108,4 +145,40 @@ func (s *Server) getReviews(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getItemRating(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 	w.Write([]byte("Not Implemented"))
+}
+
+// --- Helpers ---
+
+func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		s.log.Error().Err(err).Msg("failed to write JSON response")
+	}
+}
+
+func (s *Server) errorResponse(w http.ResponseWriter, r *http.Request, status int, message error) {
+	errPayload := map[string]string{"error": message.Error()}
+	s.writeJSON(w, status, errPayload)
+}
+
+func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
+	maxBytes := 1_048_576 // 1 MB
+	r.Body = http.MaxBytesReader(w, r.Body, int64(maxBytes))
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	err := dec.Decode(dst)
+	if err != nil {
+		// ... error handling ...
+		return err
+	}
+
+	err = dec.Decode(&struct{}{})
+	if err != io.EOF {
+		return errors.New("body must only contain a single JSON object")
+	}
+
+	return nil
 }

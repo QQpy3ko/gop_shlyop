@@ -1,9 +1,6 @@
 package types
 
-import (
-	"database/sql"
-	"time"
-)
+import "time"
 
 type Review struct {
 	ID        int64     `json:"id"`
