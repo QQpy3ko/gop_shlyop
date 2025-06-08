@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"gop_shlyop/internal/config"
 	"gop_shlyop/internal/logger"
 	"gop_shlyop/internal/server"
@@ -21,8 +22,13 @@ func main() {
 	log.Info().Str("env", cfg.Env).Msg("UGC Service is starting")
 	log.Debug().Msg("debug messages are enabled")
 
+	ctx := context.Background()
+
     // create server
-	srv := server.New(cfg, log)
+	srv, err := server.New(ctx, cfg, log)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create server")
+	}
 
 	if err := srv.Run(); err != nil {
 		log.Fatal().Err(err).Msg("failed to run server")
