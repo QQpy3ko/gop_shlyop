@@ -177,8 +177,21 @@ func (s *Server) getReviews(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getItemRating(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-	w.Write([]byte("Not Implemented"))
+	itemIDStr := chi.URLParam(r, "itemId")
+	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
+	if err != nil || itemID <= 0 {
+		s.errorResponse(w, r, http.StatusBadRequest, errors.New("invalid item_id parameter"))
+		return
+	}
+
+	rating, err := s.reviewsRepo.GetItemRating(r.Context(), itemID)
+	if err != nil {
+		s.log.Error().Err(err).Int64("item_id", itemID).Msg("failed to get item rating")
+		s.errorResponse(w, r, http.StatusInternalServerError, errors.New("failed to retrieve item rating"))
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, rating)
 }
 
 // --- Helpers ---

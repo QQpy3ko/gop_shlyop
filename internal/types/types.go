@@ -16,3 +16,9 @@ type AddReviewRequest struct {
 	ItemID int64  `json:"item_id"`
 	Text   string `json:"text"`
 }
+
+type ItemRatingResponse struct {
+	ItemID        int64   `json:"item_id"`
+	AverageRating float64 `json:"average_rating"`
+	TotalReviews  int     `json:"total_reviews"`
+}

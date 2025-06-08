@@ -94,3 +94,32 @@ func (r *ReviewsRepository) GetReviews(ctx context.Context, userID, itemID int64
 
 	return reviews, nil
 }
+
+// calculates the average rating for a given item.
+// rating is the percentage of positive reviews.
+func (r *ReviewsRepository) GetItemRating(ctx context.Context, itemID int64) (types.ItemRatingResponse, error) {
+	query := `
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN sentiment = 'positive' THEN 1 ELSE 0 END), 0)
+		FROM reviews
+		WHERE item_id = $1
+	`
+
+	var totalReviews, positiveReviews int
+	err := r.db.QueryRow(ctx, query, itemID).Scan(&totalReviews, &positiveReviews)
+	if err != nil {
+		return types.ItemRatingResponse{}, fmt.Errorf("failed to calculate item rating: %w", err)
+	}
+
+	var avgRating float64
+	if totalReviews > 0 {
+		avgRating = float64(positiveReviews) / float64(totalReviews)
+	}
+
+	return types.ItemRatingResponse{
+		ItemID:        itemID,
+		AverageRating: avgRating,
+		TotalReviews:  totalReviews,
+	}, nil
+}
