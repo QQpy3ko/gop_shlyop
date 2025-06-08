@@ -8,6 +8,7 @@ import (
 	"gop_shlyop/internal/config"
 	"gop_shlyop/internal/db"
 	"gop_shlyop/internal/llm"
+	"gop_shlyop/internal/metrics"
 	"gop_shlyop/internal/repository"
 	"gop_shlyop/internal/types"
 	"io"
@@ -21,6 +22,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 )
 
@@ -30,6 +33,7 @@ type Server struct {
 	dbpool          *pgxpool.Pool
 	reviewsRepo     *repository.ReviewsRepository
 	sentimentClient *llm.Client
+	metrics         *metrics.Metrics
 }
 
 func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Server, error) {
@@ -42,6 +46,7 @@ func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Server, 
 
 	reviewsRepo := repository.NewReviewsRepository(dbpool)
 	sentimentClient := llm.NewClient(cfg.Ollama)
+	metrics := metrics.NewMetrics(prometheus.DefaultRegisterer)
 
 	return &Server{
 		cfg:             cfg,
@@ -49,6 +54,7 @@ func New(ctx context.Context, cfg *config.Config, log zerolog.Logger) (*Server, 
 		dbpool:          dbpool,
 		reviewsRepo:     reviewsRepo,
 		sentimentClient: sentimentClient,
+		metrics:         metrics,
 	}, nil
 }
 
@@ -62,6 +68,10 @@ func (s *Server) Run() error {
 	router.Use(middleware.Logger) // Chi's own logger is fine for now
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(60 * time.Second))
+	router.Use(s.metricsMiddleware)
+
+	// Metrics endpoint
+	router.Handle("/metrics", promhttp.Handler())
 
 	// API routes
 	router.Route("/api/v1", func(r chi.Router) {
@@ -135,6 +145,9 @@ func (s *Server) addReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Increment the counter for created reviews
+	s.metrics.ReviewsCreatedTotal.With(prometheus.Labels{"sentiment": sentiment}).Inc()
+
 	s.writeJSON(w, http.StatusCreated, review)
 }
 
@@ -195,6 +208,29 @@ func (s *Server) getItemRating(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Helpers ---
+
+// middleware that records HTTP request metrics.
+func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		duration := time.Since(start).Seconds()
+
+		// Record duration
+		s.metrics.HttpRequestDuration.With(prometheus.Labels{
+			"method": r.Method,
+			"path":   r.URL.Path,
+		}).Observe(duration)
+
+		// Record total requests
+		s.metrics.HttpRequestsTotal.With(prometheus.Labels{
+			"method": r.Method,
+			"path":   r.URL.Path,
+			"code":   strconv.Itoa(ww.Status()),
+		}).Inc()
+	})
+}
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
