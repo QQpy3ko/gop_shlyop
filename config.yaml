@@ -1,3 +1,5 @@
+env: "local" # local, dev, prod
+
 http_server:
   host: "localhost"
   port: "8080"

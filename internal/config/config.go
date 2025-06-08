@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	Env        string           `yaml:"env"`
 	HTTPServer HTTPServerConfig `yaml:"http_server"`
 	Postgres   PostgresConfig   `yaml:"postgres"`
 	Ollama     OllamaConfig     `yaml:"ollama"`
