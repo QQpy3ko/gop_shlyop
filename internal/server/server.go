@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -138,8 +139,41 @@ func (s *Server) addReview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getReviews(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-	w.Write([]byte("Not Implemented"))
+	userIDStr := r.URL.Query().Get("user_id")
+	itemIDStr := r.URL.Query().Get("item_id")
+
+	if userIDStr != "" && itemIDStr != "" {
+		s.errorResponse(w, r, http.StatusBadRequest, errors.New("only one filter (user_id or item_id) can be applied at a time"))
+		return
+	}
+
+	var userID, itemID int64
+	var err error
+
+	if userIDStr != "" {
+		userID, err = strconv.ParseInt(userIDStr, 10, 64)
+		if err != nil || userID <= 0 {
+			s.errorResponse(w, r, http.StatusBadRequest, errors.New("invalid user_id parameter"))
+			return
+		}
+	}
+
+	if itemIDStr != "" {
+		itemID, err = strconv.ParseInt(itemIDStr, 10, 64)
+		if err != nil || itemID <= 0 {
+			s.errorResponse(w, r, http.StatusBadRequest, errors.New("invalid item_id parameter"))
+			return
+		}
+	}
+
+	reviews, err := s.reviewsRepo.GetReviews(r.Context(), userID, itemID)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to get reviews")
+		s.errorResponse(w, r, http.StatusInternalServerError, errors.New("failed to retrieve reviews"))
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, reviews)
 }
 
 func (s *Server) getItemRating(w http.ResponseWriter, r *http.Request) {
