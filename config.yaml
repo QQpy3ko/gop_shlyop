@@ -1,0 +1,16 @@
+env: "local" # local, dev, prod
+
+http_server:
+  host: "localhost"
+  port: "8080"
+
+postgres:
+  host: "localhost"
+  port: "5432"
+  user: "user"
+  password: "password"
+  dbname: "ugc"
+  sslmode: "disable"
+
+ollama:
+  host: "http://localhost:11434"
